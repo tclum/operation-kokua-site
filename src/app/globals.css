@@ -1,0 +1,66 @@
+@import "tailwindcss";
+
+/* Tokens. Every text and background pair in use passes WCAG AA, checked by
+   src/lib/contrast.test.ts, which reads these values from this file. */
+@theme {
+  --color-ink: #10201F; /* text, dark bands */
+  --color-paper: #F7F4EC; /* background */
+  --color-teal: #0F5E5A; /* headings, links, buttons on paper */
+  --color-teal-soft: #DCEBE8; /* panels */
+  --color-clay: #B03E26; /* the one accent: rules, active nav mark, figures on paper */
+  --color-stone: #55605E; /* secondary text */
+
+  --font-serif: var(--font-source-serif), Georgia, "Times New Roman", serif;
+  --font-sans: var(--font-inter), system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-size: 17px;
+  line-height: 1.6;
+  overflow-x: hidden;
+}
+
+@media (min-width: 900px) {
+  body {
+    font-size: 18px;
+  }
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-serif);
+  line-height: 1.2;
+  text-wrap: balance;
+}
+
+a {
+  text-underline-offset: 0.18em;
+}
+
+:focus-visible {
+  outline: 3px solid var(--color-teal);
+  outline-offset: 3px;
+}
+
+.on-ink :focus-visible {
+  outline-color: var(--color-paper);
+}
+
+/* Anchored trip sections clear the top of the window. */
+[data-trip],
+[data-year] {
+  scroll-margin-top: 1.5rem;
+}
+
+/* The lightbox: a native <dialog> over a near-opaque ink backdrop. */
+.lightbox::backdrop {
+  background: color-mix(in srgb, var(--color-ink) 94%, transparent);
+}

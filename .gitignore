@@ -1,0 +1,14 @@
+# Read-only mirror of the old Weebly site; never tracked.
+source/
+
+node_modules
+.next
+out
+.env*
+!.env.example
+.vercel
+tsconfig.tsbuildinfo
+next-env.d.ts
+reports/
+.DS_Store
+*.log
