@@ -4,15 +4,17 @@
 Operation Kokua's own domain live and indexable: the story, the people, every trip and donation backed by a record David can keep current, and a way to give.
 
 ## Shipped
-- 2026-11-24, slice 1 (local only, not deployed): Next.js 15 scaffold replacing operationkokua.weebly.com, with five pages: home (typographic hero, origin, impact figures, recent trips), /work (Teaching and Donations galleries with a lightbox), /timeline (12 trips, 2010 to 2015, newest first, anchored by slug), /about (mission, executives, board, legal line with the IRS letter, Press), /give (needs, fund use, contact line; no payment control). Copy from `src/content/` only, every fact tagged with its basis; image pipeline (`pnpm images`, metadata stripped, 40 photos, the excluded list kept out); noindex switch and launch gate; tests; `pnpm smoke` v0.1.0 with `--selftest`. Proof: `prompts/operation-kokua-site/reports/0001` in the workspace.
+- 2026-11-24, slice 1 (live on staging when the build stamp at https://kokua.forpono.com carries this commit or a later one): Next.js 15 scaffold replacing operationkokua.weebly.com, with five pages: home (typographic hero, origin, impact figures, recent trips), /work (Teaching and Donations galleries with a lightbox), /timeline (12 trips, 2010 to 2015, newest first, anchored by slug), /about (mission, executives, board, legal line with the IRS letter, Press), /give (needs, fund use, contact line; no payment control). Copy from `src/content/` only, every fact tagged with its basis; image pipeline (`pnpm images`, metadata stripped, 40 photos, the excluded list kept out); noindex switch and launch gate; tests; `pnpm smoke` v0.1.0 with `--selftest`. Proof: `prompts/operation-kokua-site/reports/0001` in the workspace.
+- 2026-11-24: slice 1 live on staging (875492f), smoke 12/12.
 
 ## Do
 - Gate before every commit: `pnpm install --frozen-lockfile`, `pnpm images`, `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm build`, `pnpm smoke --selftest`, then a local `pnpm start -p 3020` + `pnpm smoke http://localhost:3020`.
+- After every push to main: `pnpm smoke https://kokua.forpono.com` once the deployment shows Ready. A red run is a rollback conversation.
 - Change copy only in `src/content/`. Old-site copy stays word for word (checked against `test/fixtures/weebly-outline.md`); new facts carry `basis: "david-unconfirmed"` and a `label`, and get an Open-questions line here in the same commit.
 - A later donation record points at a trip by its `slug` in `src/content/trips.ts`; slugs never change once published.
 
 ## Deploy
-Planned: private GitHub repo tclum/operation-kokua-site, Vercel project operation-kokua (team tclum-4994s-projects), staging at kokua.forpono.com, noindex. Not set up yet.
+Live on staging: https://kokua.forpono.com (Vercel project operation-kokua, team tclum-4994s-projects, git-connected to tclum/operation-kokua-site main; push to main deploys production). Noindex (SITE_INDEXABLE unset; the launch gate refuses true while any item is unconfirmed). First deploy 875492f on 2026-11-24, smoke 12/12. After every push: wait for the deployment to show Ready, then pnpm smoke https://kokua.forpono.com.
 
 ## Do not touch
 - `source/` (the mirror of the old site): gitignored and read-only.

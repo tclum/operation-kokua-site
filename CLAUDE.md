@@ -1,4 +1,4 @@
-Rev 2026-11-24a
+Rev 2026-11-24b
 
 # operation-kokua-site: standing rules for agents
 
@@ -26,7 +26,7 @@ These rules apply in every session and every slice. A prompt may add to them, ne
 ## Gate and smoke
 - The full gate in `README.md` runs before every commit. Report every run in order, with full output; no hidden re-runs.
 - Local runs use port 3020 (3000 belongs to hawaiitechweek/website).
-- `pnpm smoke <url>` after every deploy; a run whose stamp is dirty or differs from local HEAD does not count.
+- `pnpm smoke https://kokua.forpono.com` after every push to main, once the deployment shows Ready; a run whose stamp is dirty or differs from local HEAD does not count.
 
 ## docs/project-state.md
 - Exactly these sections, in this order: Destination, Shipped, Do, Deploy, Do not touch, Open questions, Not yet specified, Accepted gaps, Out of scope.
