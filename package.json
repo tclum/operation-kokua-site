@@ -10,7 +10,13 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "images": "tsx scripts/images.ts",
-    "smoke": "tsx scripts/smoke.ts"
+    "smoke": "tsx scripts/smoke.ts",
+    "record:template": "tsx scripts/record/template.ts",
+    "record:synthetic": "tsx scripts/record/synthetic.ts",
+    "record:check": "tsx scripts/record/check.ts",
+    "record:import": "tsx scripts/record/import.ts",
+    "record:purge": "tsx scripts/record/purge.ts",
+    "record:status": "tsx scripts/record/status.ts"
   },
   "dependencies": {
     "next": "15.5.25",
@@ -20,12 +26,15 @@
   },
   "devDependencies": {
     "@eslint/eslintrc": "3.3.7",
+    "@supabase/supabase-js": "2.119.2",
     "@tailwindcss/postcss": "4.3.3",
     "@types/node": "20.19.43",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "eslint": "9.39.5",
     "eslint-config-next": "15.5.25",
+    "exceljs": "4.4.0",
+    "jszip": "3.10.2",
     "sharp": "0.35.5",
     "tailwindcss": "4.3.3",
     "tsx": "4.23.13",

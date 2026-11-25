@@ -1,4 +1,4 @@
-Rev 2026-11-24b
+Rev 2026-11-24c
 
 # operation-kokua-site: standing rules for agents
 
@@ -22,6 +22,13 @@ These rules apply in every session and every slice. A prompt may add to them, ne
 - Never push, force push, or create a GitHub repo or Vercel project. Commit only after Tim's explicit greenlight at the gate; a commit message in a prompt is not a greenlight.
 - If a hook refuses a command, stop and report. A refusal is final.
 - This file quotes commands the git hook blocks; if an agent cannot write it, changes are handed to Tim as full replacement text.
+
+## The donation record (Supabase)
+- Schema changes are SQL files handed to Tim's reviewer, who applies them through the Supabase connector; the agent then commits each one to `supabase/migrations/` byte-identical to what was applied (a test pins every file's sha256). Agents never run the `supabase` CLI, `db push`, or SQL that creates, alters or drops a table, view, type or policy.
+- An applied migration is never edited. A change is a new migration file.
+- Agents never create a batch of kind `real`; `pnpm record:import --kind real` is refused in code. Agents import synthetic batches only.
+- The value of `SUPABASE_SECRET_KEY` (and of anything in `.env.local`) never appears in output, logs, commits or prompts. It is read only in `scripts/record/db.ts`, which nothing under `src/` imports.
+- Every synthetic row is named SAMPLE: names, descriptions and titles start with `SAMPLE`, refs and trip slugs with `sample-`, and no real hospital, person, place of work or serial number appears.
 
 ## Gate and smoke
 - The full gate in `README.md` runs before every commit. Report every run in order, with full output; no hidden re-runs.

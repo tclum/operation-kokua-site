@@ -37,11 +37,15 @@ pnpm lint
 pnpm test
 pnpm build
 pnpm smoke --selftest
+pnpm record:check --selftest
+pnpm record:template   # regenerates the committed workbooks; byte-identical when nothing changed
+pnpm record:synthetic
+pnpm record:check record/synthetic-v1.xlsx
 pnpm start -p 3020   # then, in another shell:
 pnpm smoke http://localhost:3020
 ```
 
-Tests (`pnpm test`) cover: old-site copy word for word against the outline (with a one-changed-word case that goes red); excluded photos absent from `src/content/` and `public/images/` (red on a fixture naming `2690840`); no EXIF, XMP or IPTC in any public image (red on a JPEG written with EXIF); `public/images/` holding exactly the files the jobs build, each at the width its name says; the trip count and year span matching the "12 trips / 2010 to 2015" copy; the launch gate; the indexing switch's truth table; WCAG AA contrast for every colour pair in use, read from `globals.css` (clay on ink and teal on ink expected to fail); one h1 per route, the header's five links resolving to page files, the current page marked, titles, alt text; the timeline's 12 anchored trip sections; and nothing under `source/` tracked, no machine or `prompts/` path in `scripts/` or `src/`.
+Tests (`pnpm test`) cover: old-site copy word for word against the outline (with a one-changed-word case that goes red); excluded photos absent from `src/content/` and `public/images/` (red on a fixture naming `2690840`); no EXIF, XMP or IPTC in any public image (red on a JPEG written with EXIF); `public/images/` holding exactly the files the jobs build, each at the width its name says; the trip count and year span matching the "12 trips / 2010 to 2015" copy; the launch gate; the indexing switch's truth table; WCAG AA contrast for every colour pair in use, read from `globals.css` (clay on ink and teal on ink expected to fail); one h1 per route, the header's five links resolving to page files, the current page marked, titles, alt text; the timeline's 12 anchored trip sections; nothing under `source/` tracked, no machine or `prompts/` path in `scripts/` or `src/`; and the record (below): both migrations pinned by sha256, the workbook definition against the migration's tables, columns and check constraints, the seeded trip slugs equal to `src/content/trips.ts`, the committed template's sheets and headers, both synthetic workbooks' determinism, SAMPLE naming and clean check, the blanks workbook's blank columns, the row builder's counts and import-row references and its omitting blank cells rather than sending null, the checker's selftest, `--kind real` refused, and the secret key read only in `scripts/record/db.ts` with nothing in `src/app` or `src/components` importing `src/record`.
 
 ## Images
 
@@ -62,6 +66,21 @@ The build stamp (`<meta name="build-stamp">`) is `VERCEL_GIT_COMMIT_SHA`, else t
 ## Smoke
 
 `pnpm smoke <baseUrl>` (smoke v0.1.0) prints its version, then the deployed and local SHAs, then twelve numbered assertions, and exits 1 on any failure; no skips, no retries. 1 to 5: each route returns 200 within 20 s with exactly one `<h1>`. 6: the stamp's SHA equals local HEAD and is not dirty (a `nogit` stamp, before the first commit, fails). 7: noindex in the header and the meta on every route, unless `SMOKE_EXPECT_INDEXABLE=true`. 8: every image URL on every route returns 200 with an `image/` type. 9: `/docs/irs-approval-letter.pdf` returns 200 as `application/pdf`. 10: `/timeline` holds one trip section per trip (12). 11: an unknown path returns 404. 12: `/robots.txt` returns 200 and allows `/`. `pnpm smoke --selftest` drives the same assertion functions against fixtures, every must-fail red and every must-pass green, and prints `RESULT: pass`. Against staging, after every push once the deployment shows Ready: `pnpm smoke https://kokua.forpono.com`.
+
+## Record
+
+The donation record is the structured account of what Operation Kokua gave: sources, recipients, trips, items with their valuations, shipments, handovers and followups. It lives in the Supabase project `operation-kokua` (schema in `supabase/migrations/`, applied through the Supabase connector by Tim's reviewer, never by an agent or the CLI). The site does not read it yet.
+
+It is filled from an intake workbook. `src/record/definition.ts` describes the workbook once (sheets, columns in order, required columns, types, allowed values, and the table and column each maps to); the template, the checker, the importer and the synthetic generator all read it.
+
+- `pnpm record:template` writes `record/operation-kokua-intake-v1.xlsx`: a Read me sheet, then one sheet per list with a frozen header, required headers marked `*`, and dropdowns for the fixed-value columns.
+- `pnpm record:synthetic` writes two workbooks, identical bytes every run, every name `SAMPLE` and every ref and slug `sample-`: `record/synthetic-v1.xlsx` from a fixed seed (3 sources, 6 recipients, 4 trips, 40 items, 5 shipments, 40 handovers, 8 followups), and `record/synthetic-blanks-v1.xlsx` (1 source, 2 recipients, 1 trip, 5 items, 1 shipment, 5 handovers, no followups) with `kind`, `condition`, both `quantity` columns, `mode`, `date_precision` and `value_per` blank on every row, so an import exercises the database defaults. The importer omits a blank cell from the row it sends rather than sending null.
+- `pnpm record:check <file>` validates a workbook offline and prints `sheet, row, column: what is wrong` for each problem, exiting 1 on any: a missing required cell, a value outside its allowed set, a non-number, an unparseable date, a duplicate ref, a ref that points at nothing, a handover quantity above its item's quantity, an item's handovers summed above its quantity, and a followup that matches no handover or more than one. `--selftest` runs the synthetic workbook (must pass) and one broken fixture per problem kind (must fail for that reason).
+- `pnpm record:import <file> --kind synthetic --label <text>` checks the file, refuses one whose sha256 is already a batch, then imports it raw first: one `import_batches` row, every sheet row into `import_rows` as raw JSON exactly as read, then the structured rows, each carrying its `batch_id` and `import_row_id`. Refs (`source_ref`, `item_ref` and the rest) join sheets within the workbook and stay in the raw rows; they never become database ids. A failed insert deletes the batch and exits 1. It prints the batch id and counts read back from the database.
+- `pnpm record:purge --kind synthetic` deletes every synthetic batch, with counts before and after. It cannot name a real batch.
+- `pnpm record:status` prints batches by kind, rows per table by kind, and `totals_by_basis`.
+
+Synthetic against real: every batch has a kind. Synthetic batches are test data agents may create and purge; real batches hold Operation Kokua's records (today one, `old-site`: the 12 trips and 4 hospitals the old site names, seeded by migration). `--kind real` is refused in this slice. The views never mix kinds or valuation bases. The import scripts read `SUPABASE_URL` and `SUPABASE_SECRET_KEY` from `.env.local` (see `.env.example`), in `scripts/record/db.ts` only.
 
 ## Deploy
 

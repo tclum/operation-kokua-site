@@ -6,15 +6,18 @@ Operation Kokua's own domain live and indexable: the story, the people, every tr
 ## Shipped
 - 2026-11-24, slice 1 (live on staging when the build stamp at https://kokua.forpono.com carries this commit or a later one): Next.js 15 scaffold replacing operationkokua.weebly.com, with five pages: home (typographic hero, origin, impact figures, recent trips), /work (Teaching and Donations galleries with a lightbox), /timeline (12 trips, 2010 to 2015, newest first, anchored by slug), /about (mission, executives, board, legal line with the IRS letter, Press), /give (needs, fund use, contact line; no payment control). Copy from `src/content/` only, every fact tagged with its basis; image pipeline (`pnpm images`, metadata stripped, 40 photos, the excluded list kept out); noindex switch and launch gate; tests; `pnpm smoke` v0.1.0 with `--selftest`. Proof: `prompts/operation-kokua-site/reports/0001` in the workspace.
 - 2026-11-24: slice 1 live on staging (875492f), smoke 12/12.
+- 2026-11-24, slice 2: the donation record's foundation. Migrations `20261125021239_record_foundation` (raw-first import tables, the structured record, the `handover_facts` and `totals_by_basis` views, RLS on with no policies) and `20261125021334_seed_old_site` (one real batch `old-site`: 12 trips, 4 recipients), applied through the Supabase connector and committed byte-identical. Intake workbook from one definition (`src/record/definition.ts`), offline checker with selftest (including an item's handovers summed against its quantity), two synthetic workbooks (`synthetic-v1`, and `synthetic-blanks-v1` with every defaulted optional cell blank), raw-first importer that omits blank cells so database defaults apply, purge and status scripts. Two synthetic batches ("synthetic v1", "synthetic blanks v1") loaded after a purge. No page, route or component changed.
 
 ## Do
-- Gate before every commit: `pnpm install --frozen-lockfile`, `pnpm images`, `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm build`, `pnpm smoke --selftest`, then a local `pnpm start -p 3020` + `pnpm smoke http://localhost:3020`.
+- Gate before every commit: `pnpm install --frozen-lockfile`, `pnpm images`, `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm build`, `pnpm smoke --selftest`, `pnpm record:check --selftest`, `pnpm record:template`, `pnpm record:synthetic`, `pnpm record:check record/synthetic-v1.xlsx`, then a local `pnpm start -p 3020` + `pnpm smoke http://localhost:3020`.
 - After every push to main: `pnpm smoke https://kokua.forpono.com` once the deployment shows Ready. A red run is a rollback conversation.
 - Change copy only in `src/content/`. Old-site copy stays word for word (checked against `test/fixtures/weebly-outline.md`); new facts carry `basis: "david-unconfirmed"` and a `label`, and get an Open-questions line here in the same commit.
 - A later donation record points at a trip by its `slug` in `src/content/trips.ts`; slugs never change once published.
+- Record scripts: `pnpm record:template`, `record:synthetic`, `record:check <file>` (and `--selftest`), `record:import <file> --kind synthetic --label <text>`, `record:purge --kind synthetic`, `record:status`. Schema changes are new migration files applied by Tim's reviewer through the Supabase connector, then committed byte-identical; agents import synthetic batches only.
 
 ## Deploy
 Live on staging: https://kokua.forpono.com (Vercel project operation-kokua, team tclum-4994s-projects, git-connected to tclum/operation-kokua-site main; push to main deploys production). Noindex (SITE_INDEXABLE unset; the launch gate refuses true while any item is unconfirmed). First deploy 875492f on 2026-11-24, smoke 12/12. After every push: wait for the deployment to show Ready, then pnpm smoke https://kokua.forpono.com.
+Database: Supabase project operation-kokua, ref dwgxbgtnbycopbjnzpcz, region us-west-1. The hosted site does not read the database yet; only the local `pnpm record:*` scripts do.
 
 ## Do not touch
 - `source/` (the mirror of the old site): gitignored and read-only.
@@ -50,9 +53,10 @@ Other questions:
 - `task`: who owns operationkokua.org and operationkokua.com.
 - `task`: original photo files from David; the mirror tops out near 1100 pixels wide.
 - `research`: import rules for used medical devices in recipient countries.
+- `grilling`, 2026-11-24: how records get entered after launch (forms, the workbook, or both) and by whom, decided after seeing David's records on 2026-12-07.
+- `task`, 2026-11-24: Vercel needs the two Supabase variables before any page reads the record.
 
 ## Not yet specified
-- The donation record (items, recipients, values) and its entry surface.
 - The recipient map.
 - Online giving.
 - The domain and launch.
