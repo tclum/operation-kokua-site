@@ -131,6 +131,7 @@ export const SHEETS: readonly Sheet[] = [
       col({ name: "value_per", required: false, type: "enum", values: VALUE_PER, maps: { to: "valuation-field", table: "valuations", column: "per" }, help: "Whether the dollar figures are per unit or for the whole lot; blank means the whole lot." }),
       col({ name: "valuation_note", required: false, type: "text", maps: { to: "valuation-field", table: "valuations", column: "method_note" }, help: "How the value was worked out." }),
       col({ name: "valued_by", required: false, type: "text", maps: { to: "valuation-field", table: "valuations", column: "valued_by" }, help: "Who worked it out." }),
+      col({ name: "valued_on", required: false, type: "date", maps: { to: "valuation-field", table: "valuations", column: "valued_on" }, help: "When the value was worked out, like 2016-10-03." }),
       text("note", "items", "note", "Anything else worth keeping."),
     ],
   },
@@ -140,6 +141,7 @@ export const SHEETS: readonly Sheet[] = [
     purpose: "How things travelled: each box, crate or suitcase run.",
     columns: [
       col({ name: "shipment_ref", required: true, type: "text", key: true, maps: { to: "raw" }, help: "Your own short label for this shipment, used on the Handovers sheet." }),
+      text("reference", "shipments", "reference", "A waybill, tracking or airline tag number, if there is one."),
       col({ name: "trip_slug", required: false, type: "slug", refSheet: "Trips", maps: { to: "ref", table: "shipments", column: "trip_id" }, help: "Which trip it went with (a trip_slug from the Trips sheet)." }),
       col({ name: "shipped_on", required: false, type: "date", maps: { to: "column", table: "shipments", column: "shipped_on" }, help: "Date sent, like 2016-10-03." }),
       col({ name: "arrived_on", required: false, type: "date", maps: { to: "column", table: "shipments", column: "arrived_on" }, help: "Date arrived, like 2016-10-20." }),
@@ -184,10 +186,13 @@ export const SHEETS: readonly Sheet[] = [
   },
 ];
 
+/** The workbook's version: in the Read me sheet and in every workbook file name. */
+export const WORKBOOK_VERSION = 2;
+
 export const READ_ME_SHEET = "Read me";
 
 export const READ_ME_LINES: readonly string[] = [
-  "Operation Kokua donation record: intake workbook (version 1)",
+  `Operation Kokua donation record: intake workbook (version ${WORKBOOK_VERSION})`,
   "",
   "This workbook collects what was donated, where it came from, how it travelled, who received it, and whether it is still in use.",
   "Originals are welcome in any form: packing lists, letters, receipts, photos, old spreadsheets. Send them as they are; nothing needs retyping first.",

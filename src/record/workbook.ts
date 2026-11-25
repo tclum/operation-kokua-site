@@ -136,9 +136,13 @@ export type CellInput = string | number | boolean | Date | undefined;
  * The intake workbook: a Read me sheet, then one sheet per definition with a
  * frozen header row, required headers marked " *", and dropdowns for every
  * column with a fixed set of values. `rows` fills the sheets (the synthetic
- * generator); without it the workbook is the empty template.
+ * and rehearsal generators); without it the workbook is the empty template.
+ * `readMeLines` replaces the Read me text (the rehearsal file's warning).
  */
-export function buildWorkbook(rows?: Partial<Record<SheetName, Record<string, CellInput>[]>>): ExcelJS.Workbook {
+export function buildWorkbook(
+  rows?: Partial<Record<SheetName, Record<string, CellInput>[]>>,
+  readMeLines: readonly string[] = READ_ME_LINES,
+): ExcelJS.Workbook {
   const wb = new ExcelJS.Workbook();
   wb.creator = "operation-kokua-site";
   wb.lastModifiedBy = "operation-kokua-site";
@@ -147,7 +151,7 @@ export function buildWorkbook(rows?: Partial<Record<SheetName, Record<string, Ce
 
   const readMe = wb.addWorksheet(READ_ME_SHEET);
   readMe.getColumn(1).width = 110;
-  READ_ME_LINES.forEach((line, i) => {
+  readMeLines.forEach((line, i) => {
     const cell = readMe.getCell(i + 1, 1);
     cell.value = line;
     cell.alignment = { wrapText: true, vertical: "top" };

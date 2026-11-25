@@ -1,4 +1,4 @@
-Rev 2026-11-24c
+Rev 2026-11-25a
 
 # operation-kokua-site: standing rules for agents
 
@@ -26,7 +26,9 @@ These rules apply in every session and every slice. A prompt may add to them, ne
 ## The donation record (Supabase)
 - Schema changes are SQL files handed to Tim's reviewer, who applies them through the Supabase connector; the agent then commits each one to `supabase/migrations/` byte-identical to what was applied (a test pins every file's sha256). Agents never run the `supabase` CLI, `db push`, or SQL that creates, alters or drops a table, view, type or policy.
 - An applied migration is never edited. A change is a new migration file.
-- Agents never create a batch of kind `real`; `pnpm record:import --kind real` is refused in code. Agents import synthetic batches only.
+- Agents never create, change or delete a row in a batch of kind `real`, by any route: no script flag, no direct request, no piping input into a prompt meant for a person. Agents import synthetic batches only.
+- Agents rehearse real imports with `--dry-run` only. A real import is committed by a person at a terminal typing the batch label; that confirmation is never bypassed, scripted or worked around, and no flag or variable is ever added to skip it.
+- The rehearsal file `record/rehearsal-real-v2.xlsx` (and any workbook with a `REHEARSAL` name or a `rehearsal-` slug) is never committed to the record; the importer refuses it, and that refusal is never worked around.
 - The value of `SUPABASE_SECRET_KEY` (and of anything in `.env.local`) never appears in output, logs, commits or prompts. It is read only in `scripts/record/db.ts`, which nothing under `src/` imports.
 - Every synthetic row is named SAMPLE: names, descriptions and titles start with `SAMPLE`, refs and trip slugs with `sample-`, and no real hospital, person, place of work or serial number appears.
 

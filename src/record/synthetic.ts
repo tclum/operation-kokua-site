@@ -74,6 +74,7 @@ export function syntheticRows(seed = SYNTHETIC_SEED): Rows {
     const trip = trips[i % 4];
     return {
       shipment_ref: `sample-shp-${i + 1}`,
+      reference: i % 2 === 0 ? `SAMPLE-WAYBILL-${String(i + 1).padStart(4, "0")}` : undefined,
       trip_slug: trip.trip_slug,
       shipped_on: `${trip.year}-${pad(trip.month - 1)}-01`,
       arrived_on: `${trip.year}-${pad(trip.month - 1)}-15`,
@@ -109,6 +110,7 @@ export function syntheticRows(seed = SYNTHETIC_SEED): Rows {
       value_per: per,
       valuation_note: "SAMPLE valuation note",
       valued_by: "SAMPLE Person 9",
+      valued_on: i % 3 === 0 ? `${2015 + (i % 4)}-10-03` : undefined,
       note: undefined,
     };
   });

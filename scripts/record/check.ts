@@ -1,19 +1,19 @@
-// pnpm record:check <file> | --selftest
-// Parses and validates an intake workbook offline. Touches no network.
-// Exits 1 on any problem.
+// pnpm record:check <file> [--kind synthetic|real] | --selftest
+// Parses and validates an intake workbook offline, read as the given kind
+// (default synthetic). Touches no network. Exits 1 on any problem.
 
 import { readFileSync } from "node:fs";
 import { SHEETS } from "../../src/record/definition";
-import { checkWorkbook, formatProblem, type CheckResult } from "../../src/record/check";
+import { checkWorkbook, formatProblem, RECORD_KINDS, type CheckResult, type RecordKind } from "../../src/record/check";
 import { runSelftest } from "../../src/record/selftest";
 import { parseWorkbook } from "../../src/record/workbook";
 
-export async function checkFile(file: string): Promise<CheckResult> {
-  return checkWorkbook(await parseWorkbook(readFileSync(file)));
+export async function checkFile(file: string, kind: RecordKind = "synthetic"): Promise<CheckResult> {
+  return checkWorkbook(await parseWorkbook(readFileSync(file)), kind);
 }
 
-export function printCheck(file: string, result: CheckResult): void {
-  console.log(`record:check ${file}`);
+export function printCheck(file: string, result: CheckResult, kind: RecordKind = "synthetic"): void {
+  console.log(`record:check ${file} (as ${kind})`);
   for (const s of SHEETS) console.log(`  ${s.name.padEnd(11)} ${result.counts[s.name]} rows`);
   if (result.problems.length === 0) {
     console.log("No problems.");
@@ -31,12 +31,28 @@ async function main(): Promise<number> {
     console.log(`RESULT: ${pass ? "pass" : "FAIL"}`);
     return pass ? 0 : 1;
   }
-  if (args.length !== 1) {
-    console.error("usage: pnpm record:check <file.xlsx> | --selftest");
+  const usage = "usage: pnpm record:check <file.xlsx> [--kind synthetic|real] | --selftest";
+  let file: string | undefined;
+  let kind: RecordKind = "synthetic";
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === "--kind") {
+      const k = args[++i];
+      if (!RECORD_KINDS.includes(k as RecordKind)) {
+        console.error(`--kind must be synthetic or real\n${usage}`);
+        return 1;
+      }
+      kind = k as RecordKind;
+    } else if (args[i].startsWith("--") || file !== undefined) {
+      console.error(usage);
+      return 1;
+    } else file = args[i];
+  }
+  if (!file) {
+    console.error(usage);
     return 1;
   }
-  const result = await checkFile(args[0]);
-  printCheck(args[0], result);
+  const result = await checkFile(file, kind);
+  printCheck(file, result, kind);
   return result.problems.length === 0 ? 0 : 1;
 }
 

@@ -22,7 +22,24 @@ export type ProblemCode =
   | "handover-over-quantity"
   | "handovers-sum-over-quantity"
   | "followup-no-handover"
-  | "followup-many-handovers";
+  | "followup-many-handovers"
+  | "not-synthetic"
+  | "looks-synthetic"
+  // From the resolver (src/record/resolve.ts), against the real record:
+  | "trip-differs"
+  | "trip-unknown"
+  | "recipient-ambiguous"
+  | "source-ambiguous";
+
+/** What a workbook claims to be. Told apart by content, not only by a flag. */
+export type RecordKind = "synthetic" | "real";
+
+export const RECORD_KINDS: readonly RecordKind[] = ["synthetic", "real"];
+
+/** Columns whose every value names a thing, and so carries the kind's marker. */
+export const NAMING_COLUMNS = ["name", "description", "title"] as const;
+export const SAMPLE_NAME = "SAMPLE";
+export const SAMPLE_SLUG = "sample-";
 
 export type Problem = { sheet: string; row: number; column: string; code: ProblemCode; message: string };
 
@@ -35,6 +52,15 @@ export type Typed = string | number | boolean | null;
 
 const SLUG = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+/** A calendar date written YYYY-MM-DD. */
+export function isIsoDate(s: string): boolean {
+  const m = ISO_DATE.exec(s);
+  if (!m) return false;
+  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const dt = new Date(Date.UTC(y, mo - 1, d));
+  return dt.getUTCFullYear() === y && dt.getUTCMonth() === mo - 1 && dt.getUTCDate() === d;
+}
 
 /**
  * A cell's value as the database column wants it: text trimmed, numbers as
@@ -87,14 +113,8 @@ export function typedValue(c: Column, v: CellValue | undefined): { ok: true; val
         if (Number.isNaN(v.getTime())) return { ok: false, code: "bad-date", message: "the date cannot be read" };
         return { ok: true, value: v.toISOString().slice(0, 10) };
       }
-      const m = ISO_DATE.exec(String(v).trim());
-      if (m) {
-        const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
-        const dt = new Date(Date.UTC(y, mo - 1, d));
-        if (dt.getUTCFullYear() === y && dt.getUTCMonth() === mo - 1 && dt.getUTCDate() === d) {
-          return { ok: true, value: m[0] };
-        }
-      }
+      const s = String(v).trim();
+      if (isIsoDate(s)) return { ok: true, value: s };
       return { ok: false, code: "bad-date", message: `"${shown}" is not a date written like 2016-11-12` };
     }
   }
@@ -112,7 +132,16 @@ export function typedRow(sheet: SheetName, values: Record<string, CellValue>): R
   return out;
 }
 
-export function checkWorkbook(wb: ParsedWorkbook): CheckResult {
+/**
+ * Every problem in the workbook, read as `kind`:
+ * - synthetic: every name, description and title starts with SAMPLE and every
+ *   trip_slug with sample-; every ref joins within the workbook.
+ * - real: no name, description or title starts with SAMPLE and no trip_slug
+ *   with sample-. A trip_slug on Shipments or Handovers may name a trip already
+ *   in the record, so the offline check leaves those to the resolver
+ *   (src/record/resolve.ts), which has the record's trips.
+ */
+export function checkWorkbook(wb: ParsedWorkbook, kind: RecordKind = "synthetic"): CheckResult {
   const problems: Problem[] = wb.shape.map((p) => ({ ...p, code: p.code as ProblemCode }));
   const counts = Object.fromEntries(SHEETS.map((s) => [s.name, wb.sheets[s.name].length])) as Record<SheetName, number>;
   const typed = {} as Record<SheetName, { row: number; v: Record<string, Typed> }[]>;
@@ -155,9 +184,31 @@ export function checkWorkbook(wb: ParsedWorkbook): CheckResult {
     }
   }
 
-  // Refs: each points at a key on its sheet.
+  // Kind: told apart by what the rows say.
+  for (const def of SHEETS) {
+    for (const { row, v } of typed[def.name]) {
+      for (const c of def.columns) {
+        const value = v[c.name];
+        if (typeof value !== "string" || value === "") continue;
+        const isName = (NAMING_COLUMNS as readonly string[]).includes(c.name);
+        const isSlug = c.name === "trip_slug";
+        if (!isName && !isSlug) continue;
+        const marker = isName ? SAMPLE_NAME : SAMPLE_SLUG;
+        const marked = value.startsWith(marker);
+        if (kind === "synthetic" && !marked) {
+          problems.push({ sheet: def.name, row, column: c.name, code: "not-synthetic", message: `"${value}" does not start with ${marker}; in a synthetic workbook every one does` });
+        } else if (kind === "real" && marked) {
+          problems.push({ sheet: def.name, row, column: c.name, code: "looks-synthetic", message: `"${value}" starts with ${marker}; a real workbook holds no sample rows` });
+        }
+      }
+    }
+  }
+
+  // Refs: each points at a key on its sheet (for real, trip_slug refs may
+  // instead name a trip in the record; the resolver checks those).
   for (const def of SHEETS) {
     for (const c of def.columns.filter((c) => c.refSheet)) {
+      if (kind === "real" && c.refSheet === "Trips") continue;
       for (const { row, v } of typed[def.name]) {
         const ref = v[c.name];
         if (ref === null || ref === "") continue;

@@ -3,7 +3,7 @@
 // kind it accepts is synthetic, so it has no way to name a real batch.
 
 import { db, describeError } from "./db";
-import { deleteSyntheticBatch } from "./batches";
+import { deleteImportedBatch } from "./batches";
 import { countsForKind, formatCounts } from "./counts";
 
 async function main(): Promise<number> {
@@ -26,7 +26,7 @@ async function main(): Promise<number> {
   }
   if (!batches || batches.length === 0) console.log("No synthetic batches.");
   for (const b of batches ?? []) {
-    await deleteSyntheticBatch(b.id);
+    await deleteImportedBatch(b.id, "synthetic");
     console.log(`Deleted synthetic batch "${b.label}" (${b.id})`);
   }
 

@@ -1,4 +1,4 @@
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -7,12 +7,12 @@ import { describe, expect, it } from "vitest";
 import { trips } from "../../src/content/trips";
 import { buildRows, INSERT_ORDER } from "../../src/record/build";
 import { checkWorkbook } from "../../src/record/check";
-import { SHEETS } from "../../src/record/definition";
+import { SHEETS, WORKBOOK_VERSION } from "../../src/record/definition";
+import { REHEARSAL_READ_ME, rehearsalMarkers, rehearsalWorkbook } from "../../src/record/rehearsal";
 import { runSelftest } from "../../src/record/selftest";
 import { BLANK_COLUMNS, SYNTHETIC_BLANKS_COUNTS, SYNTHETIC_COUNTS, syntheticBlanksWorkbook, syntheticWorkbook } from "../../src/record/synthetic";
 import { parseWorkbook, workbookBuffer, workbookCells, workbookLayout } from "../../src/record/workbook";
-import { parseImportArgs } from "./import";
-import { SYNTHETIC_BLANKS_PATH, SYNTHETIC_PATH } from "./synthetic";
+import { REHEARSAL_PATH, SYNTHETIC_BLANKS_PATH, SYNTHETIC_PATH } from "./synthetic";
 import { TEMPLATE_PATH, writeTemplate } from "./template";
 
 const ROOT = path.resolve(__dirname, "..", "..");
@@ -96,6 +96,17 @@ describe("secret key isolation", () => {
 });
 
 describe("the template", () => {
+  it("is version 2, and only the v2 workbooks are in record/", () => {
+    expect(WORKBOOK_VERSION).toBe(2);
+    expect(path.basename(TEMPLATE_PATH)).toBe("operation-kokua-intake-v2.xlsx");
+    expect(readdirSync(path.join(ROOT, "record")).sort()).toEqual([
+      "operation-kokua-intake-v2.xlsx",
+      "rehearsal-real-v2.xlsx",
+      "synthetic-blanks-v2.xlsx",
+      "synthetic-v2.xlsx",
+    ]);
+  });
+
   it("the committed template matches a fresh one: sheet names and header rows", async () => {
     const tmp = mkdtempSync(path.join(tmpdir(), "okp-template-"));
     try {
@@ -105,6 +116,8 @@ describe("the template", () => {
       expect(committed).toEqual(await workbookLayout(readFileSync(fresh)));
       expect(committed.map((s) => s.sheet)).toEqual(["Read me", ...SHEETS.map((s) => s.name)]);
       expect(committed.find((s) => s.sheet === "Trips")?.header).toEqual(["trip_slug *", "title *", "year *", "month", "city", "country *", "note"]);
+      expect(committed.find((s) => s.sheet === "Shipments")?.header.slice(0, 3)).toEqual(["shipment_ref *", "reference", "trip_slug"]);
+      expect(committed.find((s) => s.sheet === "Items")?.header.slice(-3)).toEqual(["valued_by", "valued_on", "note"]);
     } finally {
       rmSync(tmp, { recursive: true, force: true });
     }
@@ -131,8 +144,8 @@ describe("the synthetic workbook", () => {
   });
 
   it.each([
-    ["synthetic-v1.xlsx", SYNTHETIC_PATH, 500],
-    ["synthetic-blanks-v1.xlsx", SYNTHETIC_BLANKS_PATH, 30],
+    ["synthetic-v2.xlsx", SYNTHETIC_PATH, 500],
+    ["synthetic-blanks-v2.xlsx", SYNTHETIC_BLANKS_PATH, 30],
   ])("%s: every string cell that names a thing starts with SAMPLE or sample-", async (_name, file, minimum) => {
     const wb = await parseWorkbook(readFileSync(file));
     const bad: string[] = [];
@@ -157,6 +170,64 @@ describe("the synthetic workbook", () => {
     }
     expect(checked).toBeGreaterThan(minimum);
     expect(bad).toEqual([]);
+  });
+});
+
+describe("the two version 2 columns", () => {
+  it("are filled on some rows of synthetic-v2 and blank throughout synthetic-blanks-v2", async () => {
+    const full = await parseWorkbook(readFileSync(SYNTHETIC_PATH));
+    const blanks = await parseWorkbook(readFileSync(SYNTHETIC_BLANKS_PATH));
+    const filled = (wb: typeof full, sheet: "Shipments" | "Items", c: string) => wb.sheets[sheet].filter((r) => r.values[c] !== undefined).length;
+    expect(filled(full, "Shipments", "reference")).toBe(3);
+    expect(filled(full, "Items", "valued_on")).toBe(14);
+    expect(filled(full, "Shipments", "reference")).toBeLessThan(full.sheets.Shipments.length);
+    expect(filled(blanks, "Shipments", "reference")).toBe(0);
+    expect(filled(blanks, "Items", "valued_on")).toBe(0);
+  });
+
+  it("reach the database: reference on shipments, valued_on on every valuation its item yields", async () => {
+    const wb = await parseWorkbook(readFileSync(SYNTHETIC_PATH));
+    let n = 0;
+    const rows = buildRows(wb, "batch", () => `id-${++n}`);
+    expect(rows.shipments.filter((r) => typeof r.reference === "string" && r.reference.startsWith("SAMPLE-WAYBILL-"))).toHaveLength(3);
+    for (const item of wb.sheets.Items) {
+      const built = rows.items.find((r) => r.description === item.values.description)!;
+      const vals = rows.valuations.filter((v) => v.item_id === built.id);
+      for (const v of vals) expect(v.valued_on).toBe(item.values.valued_on);
+    }
+    expect(rows.valuations.filter((v) => v.valued_on !== undefined).length).toBeGreaterThan(10);
+  });
+});
+
+describe("the rehearsal workbook", () => {
+  it("is deterministic and the committed file holds the generator's cells", async () => {
+    const a = await workbookBuffer(rehearsalWorkbook());
+    const b = await workbookBuffer(rehearsalWorkbook());
+    expect(a.equals(b)).toBe(true);
+    expect(await workbookCells(readFileSync(REHEARSAL_PATH))).toEqual(await workbookCells(a));
+  });
+
+  it("says in the first line of its Read me sheet that it is a rehearsal and must never be imported", async () => {
+    const cells = await workbookCells(readFileSync(REHEARSAL_PATH));
+    expect(cells["Read me"][0][0]).toBe("REHEARSAL FILE: for dry runs only. It must never be imported into the record.");
+    expect(REHEARSAL_READ_ME[0]).toBe(cells["Read me"][0][0]);
+  });
+
+  it("holds the rows section 6 names, plainly marked", async () => {
+    const wb = await parseWorkbook(readFileSync(REHEARSAL_PATH));
+    expect(checkWorkbook(wb, "real").counts).toEqual({ Sources: 1, Recipients: 2, Trips: 2, Items: 4, Shipments: 1, Handovers: 4, Followups: 0 });
+    expect(wb.sheets.Trips.map((r) => r.values.trip_slug)).toEqual(["hanoi-2015", "rehearsal-nepal-2017"]);
+    expect(wb.sheets.Shipments[0].values).toMatchObject({ trip_slug: "hanoi-2015", reference: "REHEARSAL-WAYBILL-0001" });
+    expect(wb.sheets.Handovers.filter((r) => r.values.trip_slug === "cambodia-2015")).toHaveLength(2);
+    // Every new name, description and title starts REHEARSAL; only the two repeats of the record do not.
+    const names = SHEETS.flatMap((s) => wb.sheets[s.name].flatMap((r) => ["name", "description", "title"].map((c) => r.values[c]).filter((v) => v !== undefined)));
+    expect(names.filter((v) => !String(v).startsWith("REHEARSAL"))).toEqual(["Cho Ray Hospital", "Hanoi, November 2015"]);
+  });
+
+  it("is marked as a rehearsal for the importer, and the synthetic workbooks are not", async () => {
+    expect(rehearsalMarkers(await parseWorkbook(readFileSync(REHEARSAL_PATH))).length).toBeGreaterThan(5);
+    expect(rehearsalMarkers(await parseWorkbook(readFileSync(SYNTHETIC_PATH)))).toEqual([]);
+    expect(rehearsalMarkers(await parseWorkbook(readFileSync(SYNTHETIC_BLANKS_PATH)))).toEqual([]);
   });
 });
 
@@ -258,29 +329,24 @@ describe("record:check --selftest", () => {
   it("passes: the synthetic workbook passes and every must-fail fails for its own reason", async () => {
     const { pass, lines } = await runSelftest();
     expect(lines.filter((l) => !l.ok)).toEqual([]);
-    expect(lines).toHaveLength(11);
+    expect(lines).toHaveLength(16);
+    for (const name of [
+      "must pass: the rehearsal workbook, read as real",
+      "must fail: a synthetic workbook with a name not starting SAMPLE",
+      "must fail: a synthetic workbook with a trip_slug not starting sample-",
+      "must fail: a real workbook with a description starting SAMPLE",
+      "must fail: a real workbook with a trip_slug starting sample-",
+    ]) {
+      expect(lines.map((l) => l.name)).toContain(name);
+    }
     expect(lines.find((l) => l.name.includes("adding up to more than its quantity"))?.detail).toContain("add up to 2, more than its quantity of 1");
     expect(pass).toBe(true);
   });
 });
 
-describe("record:import --kind real", () => {
-  it("is refused by the argument parser", () => {
-    expect(parseImportArgs(["f.xlsx", "--kind", "real", "--label", "x"])).toEqual({ error: "real imports are not enabled in this slice" });
-    expect(parseImportArgs(["f.xlsx", "--kind", "synthetic", "--label", "x"])).toEqual({ file: "f.xlsx", kind: "synthetic", label: "x" });
-  });
-
-  it("exits 1 with the message, before reading any file or credential", () => {
-    const tsx = path.join(ROOT, "node_modules", ".bin", "tsx");
-    const r = spawnSync(tsx, ["scripts/record/import.ts", "no-such-file.xlsx", "--kind", "real", "--label", "x"], { cwd: ROOT, encoding: "utf8" });
-    expect(r.status).toBe(1);
-    expect(r.stderr.trim()).toBe("real imports are not enabled in this slice");
-  });
-});
-
 describe("record:check touches no network", () => {
   it("the checker's modules import nothing that talks to a database", () => {
-    const files = ["scripts/record/check.ts", "src/record/check.ts", "src/record/workbook.ts", "src/record/definition.ts", "src/record/selftest.ts", "src/record/synthetic.ts", "src/record/build.ts"];
+    const files = ["scripts/record/check.ts", "src/record/check.ts", "src/record/workbook.ts", "src/record/definition.ts", "src/record/selftest.ts", "src/record/synthetic.ts", "src/record/build.ts", "src/record/resolve.ts", "src/record/rehearsal.ts"];
     for (const f of files) {
       const specs = importsOf(path.join(ROOT, f));
       expect(specs.filter((s) => s.includes("supabase") || s.endsWith("/db") || s.includes("http")), f).toEqual([]);

@@ -4,11 +4,15 @@
 //
 // Raw first: one import_rows row per sheet row, holding the cells exactly as
 // read. Every structured row carries batch_id (where its table has one) and
-// the import_row_id of the sheet row it came from. Refs join only within the
-// workbook, so a batch's rows point only at rows of the same batch.
+// the import_row_id of the sheet row it came from. Without a resolution
+// (synthetic), refs join only within the workbook, so a batch's rows point
+// only at rows of the same batch. With one (real, src/record/resolve.ts), a
+// matched row is not built (its raw row still is) and refs to it, or to an
+// existing trip named directly, carry the existing id.
 
 import { SHEETS, keyColumn, type SheetName } from "./definition";
 import { typedRow, type Typed } from "./check";
+import type { Resolution } from "./resolve";
 import type { Json, ParsedWorkbook } from "./workbook";
 
 export type Row = Record<string, Json>;
@@ -30,7 +34,12 @@ export type TableName = (typeof INSERT_ORDER)[number];
 
 export type BuiltRows = Record<TableName, Row[]>;
 
-export function buildRows(wb: ParsedWorkbook, batchId: string, newId: () => string): BuiltRows {
+export function buildRows(
+  wb: ParsedWorkbook,
+  batchId: string,
+  newId: () => string,
+  resolution?: Pick<Resolution, "matched" | "existingTrips">,
+): BuiltRows {
   const out = Object.fromEntries(INSERT_ORDER.map((t) => [t, [] as Row[]])) as BuiltRows;
   /** Per sheet: key value -> the id of the structured row it became. */
   const ids = Object.fromEntries(SHEETS.map((s) => [s.name, new Map<string, string>()])) as Record<SheetName, Map<string, string>>;
@@ -44,6 +53,12 @@ export function buildRows(wb: ParsedWorkbook, batchId: string, newId: () => stri
       out.import_rows.push({ id: importRowId, batch_id: batchId, sheet: def.name, row_number: parsed.rowNumber, raw: parsed.raw });
 
       const v = typedRow(def.name, parsed.values);
+      const existing = key ? resolution?.matched[def.name]?.get(String(v[key.name])) : undefined;
+      if (existing !== undefined) {
+        // Matched: not inserted and not changed; refs to it carry its id.
+        ids[def.name].set(String(v[key!.name]), existing);
+        continue;
+      }
       const id = newId();
       const row: Row = { id, import_row_id: importRowId };
       if (def.table !== "followups") row.batch_id = batchId;
@@ -59,10 +74,15 @@ export function buildRows(wb: ParsedWorkbook, batchId: string, newId: () => stri
           case "column":
             row[c.maps.column] = value;
             break;
-          case "ref":
+          case "ref": {
             if (def.name === "Followups") break; // joined below, by item and recipient together
-            row[c.maps.column] = ids[c.refSheet!].get(String(value))!;
+            const target =
+              ids[c.refSheet!].get(String(value)) ??
+              (c.refSheet === "Trips" ? resolution?.existingTrips.get(String(value)) : undefined);
+            if (target === undefined) throw new Error(`${def.name} row ${parsed.rowNumber}: ${c.name} "${value}" resolves to nothing (check and resolve the workbook first)`);
+            row[c.maps.column] = target;
             break;
+          }
           case "valuation-amount":
             amounts.push({ basis: c.maps.basis, amount: value as number });
             break;

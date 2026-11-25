@@ -2,9 +2,10 @@
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { WORKBOOK_VERSION } from "../../src/record/definition";
 import { buildWorkbook, workbookBuffer } from "../../src/record/workbook";
 
-export const TEMPLATE_PATH = path.resolve(__dirname, "..", "..", "record", "operation-kokua-intake-v1.xlsx");
+export const TEMPLATE_PATH = path.resolve(__dirname, "..", "..", "record", `operation-kokua-intake-v${WORKBOOK_VERSION}.xlsx`);
 
 export async function writeTemplate(file = TEMPLATE_PATH): Promise<void> {
   mkdirSync(path.dirname(file), { recursive: true });

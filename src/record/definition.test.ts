@@ -47,6 +47,19 @@ describe("the definition agrees with the migration", () => {
     expect(missing).toEqual([]);
   });
 
+  it("the two version 2 columns map to columns the schema already has, in their places", () => {
+    const shipments = SHEETS.find((s) => s.name === "Shipments")!.columns;
+    const items = SHEETS.find((s) => s.name === "Items")!.columns;
+    const reference = shipments.find((c) => c.name === "reference")!;
+    const valuedOn = items.find((c) => c.name === "valued_on")!;
+    expect(shipments.map((c) => c.name).slice(0, 3)).toEqual(["shipment_ref", "reference", "trip_slug"]);
+    expect(items.map((c) => c.name).indexOf("valued_on")).toBe(items.map((c) => c.name).indexOf("valued_by") + 1);
+    expect(reference).toMatchObject({ required: false, type: "text", maps: { to: "column", table: "shipments", column: "reference" } });
+    expect(valuedOn).toMatchObject({ required: false, type: "date", maps: { to: "valuation-field", table: "valuations", column: "valued_on" } });
+    expect(schema.get("shipments")!.columns.has("reference")).toBe(true);
+    expect(schema.get("valuations")!.columns.has("valued_on")).toBe(true);
+  });
+
   it("every enum column's allowed values equal its check constraint", () => {
     const enums = SHEETS.flatMap((s) => s.columns.filter((c) => c.type === "enum").map((c) => ({ s, c })));
     expect(enums.map(({ c }) => c.name).sort()).toEqual(["condition", "date_precision", "kind", "mode", "value_per"]);

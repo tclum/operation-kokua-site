@@ -1,9 +1,11 @@
 // Fixtures for `pnpm record:check --selftest`: the synthetic workbook must
-// pass, and each must-fail fixture (the synthetic workbook with one thing
-// broken) must fail with its own problem at its own cell.
+// pass as synthetic and the rehearsal workbook as real, and each must-fail
+// fixture (one of those with one thing broken) must fail with its own problem
+// at its own cell, read as its own kind.
 
-import { checkWorkbook, formatProblem, type ProblemCode } from "./check";
+import { checkWorkbook, formatProblem, type ProblemCode, type RecordKind } from "./check";
 import type { SheetName } from "./definition";
+import { rehearsalRows } from "./rehearsal";
 import { syntheticRows } from "./synthetic";
 import { buildWorkbook, parseWorkbook, workbookBuffer, type CellInput } from "./workbook";
 
@@ -11,6 +13,8 @@ type Rows = Record<SheetName, Record<string, CellInput>[]>;
 
 export type MustFail = {
   name: string;
+  /** Read as this kind; synthetic fixtures start from the synthetic rows, real ones from the rehearsal rows. */
+  kind?: RecordKind;
   expect: { sheet: SheetName; row: number; column: string; code: ProblemCode };
   mutate: (rows: Rows) => void;
 };
@@ -84,7 +88,37 @@ export const MUST_FAIL: readonly MustFail[] = [
       r.Handovers.push({ ...h, quantity: 1 });
     },
   },
+  {
+    name: "a synthetic workbook with a name not starting SAMPLE",
+    expect: { sheet: "Sources", row: row(0), column: "name", code: "not-synthetic" },
+    mutate: (r) => void (r.Sources[0].name = "Source A"),
+  },
+  {
+    name: "a synthetic workbook with a trip_slug not starting sample-",
+    expect: { sheet: "Trips", row: row(0), column: "trip_slug", code: "not-synthetic" },
+    mutate: (r) => {
+      // Renamed on every sheet, so the only problem is the slug itself.
+      const from = r.Trips[0].trip_slug;
+      for (const sheet of ["Trips", "Shipments", "Handovers"] as const) {
+        for (const x of r[sheet]) if (x.trip_slug === from) x.trip_slug = "trip-2016";
+      }
+    },
+  },
+  {
+    name: "a real workbook with a description starting SAMPLE",
+    kind: "real",
+    expect: { sheet: "Items", row: row(0), column: "description", code: "looks-synthetic" },
+    mutate: (r) => void (r.Items[0].description = "SAMPLE item 01"),
+  },
+  {
+    name: "a real workbook with a trip_slug starting sample-",
+    kind: "real",
+    expect: { sheet: "Handovers", row: row(2), column: "trip_slug", code: "looks-synthetic" },
+    mutate: (r) => void (r.Handovers[2].trip_slug = "sample-trip-2016"),
+  },
 ];
+
+const baseRows = (kind: RecordKind): Rows => (kind === "real" ? rehearsalRows() : syntheticRows());
 
 export type SelftestLine = { name: string; ok: boolean; detail: string };
 
@@ -98,10 +132,18 @@ export async function runSelftest(): Promise<{ pass: boolean; lines: SelftestLin
     detail: clean.problems.length === 0 ? "no problems" : clean.problems.map(formatProblem).join("; "),
   });
 
+  const rehearsal = checkWorkbook(await parseWorkbook(await workbookBuffer(buildWorkbook(rehearsalRows()))), "real");
+  lines.push({
+    name: "must pass: the rehearsal workbook, read as real",
+    ok: rehearsal.problems.length === 0,
+    detail: rehearsal.problems.length === 0 ? "no problems" : rehearsal.problems.map(formatProblem).join("; "),
+  });
+
   for (const f of MUST_FAIL) {
-    const rows = syntheticRows();
+    const kind = f.kind ?? "synthetic";
+    const rows = baseRows(kind);
     f.mutate(rows);
-    const result = checkWorkbook(await parseWorkbook(await workbookBuffer(buildWorkbook(rows))));
+    const result = checkWorkbook(await parseWorkbook(await workbookBuffer(buildWorkbook(rows))), kind);
     const hit = result.problems.find(
       (p) => p.sheet === f.expect.sheet && p.row === f.expect.row && p.column === f.expect.column && p.code === f.expect.code,
     );
