@@ -24,6 +24,7 @@ All copy lives in `src/content/` and is rendered from there only, validated with
 Every fact carries a `basis`: `old-site` (published by the organization on its old site; must appear word for word in `test/fixtures/weebly-outline.md`), `public-record` (IRS listings) or `david-unconfirmed` (told to Tim, not yet checked). The pages render all three the same. An item that is not old-site needs a `label`; `docs/project-state.md` lists every label under Open questions, and a test holds the two lists together.
 
 Tokens (colours, fonts) live in `src/app/globals.css`.
+Fonts are self-hosted: Source Serif 4 and Inter (400 and 600; latin, latin-ext and vietnamese) ship from the pinned `@fontsource` packages through `src/app/fonts.css`, so neither build nor page requests Google Fonts; `src/app/fonts.test.ts` fails on any `next/font/google` import under `src` and holds `fonts.css` to the packages.
 
 ## The gate
 
