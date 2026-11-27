@@ -173,3 +173,59 @@ export function checkBaseUrl(input: string): Check {
     return fail(`"${input}" is not a URL; did you mean https://${input}?`);
   }
 }
+
+// ---------- the record view (smoke v0.2.0, checks 13 to 17) ----------
+
+/** One request made without following redirects: status, Location, headers that matter, body. */
+export type RawOutcome = {
+  status?: number;
+  location?: string | null;
+  xRobots?: string | null;
+  cacheControl?: string | null;
+  body?: string;
+  error?: string;
+};
+
+/** An unauthenticated request to a signed-in page is redirected to the sign-in page, and the body leaks nothing. */
+export function checkAdminRedirect(path: string, r: RawOutcome, signInPath: string, forbidden: string[], baseUrl = "http://localhost"): Check {
+  if (r.error !== undefined) return fail(`${path}: request failed: ${r.error}`);
+  if (r.status === undefined || r.status < 300 || r.status > 399) return fail(`${path}: returned ${r.status}, expected a redirect to ${signInPath}`);
+  if (!r.location) return fail(`${path}: ${r.status} with no Location`);
+  let target: string;
+  try {
+    target = new URL(r.location, baseUrl).pathname;
+  } catch {
+    return fail(`${path}: Location "${r.location}" is not a URL`);
+  }
+  if (target !== signInPath) return fail(`${path}: redirects to ${target}, expected ${signInPath}`);
+  const leaked = forbidden.filter((s) => (r.body ?? "").includes(s));
+  if (leaked.length) return fail(`${path}: redirect body holds ${leaked.map((s) => JSON.stringify(s)).join(", ")}`);
+  return pass(`${path}: ${r.status} to ${signInPath}, body holds none of ${forbidden.length} forbidden strings`);
+}
+
+/** The sign-in page: 200, noindex in header and meta, Cache-Control no-store. */
+export function checkSignInPage(path: string, r: RawOutcome): Check {
+  if (r.error !== undefined) return fail(`${path}: request failed: ${r.error}`);
+  if (r.status !== 200) return fail(`${path}: returned ${r.status}`);
+  const problem = noindexProblem(r.xRobots ?? null, r.body ?? "", false);
+  if (problem) return fail(`${path}: ${problem}`);
+  const cc = r.cacheControl ?? "";
+  if (!/(^|[,\s])no-store([,\s]|$)/i.test(cc)) return fail(`${path}: Cache-Control is ${r.cacheControl === null || r.cacheControl === undefined ? "missing" : `"${cc}"`}, expected no-store`);
+  return pass(`${path}: 200, noindex header and meta, Cache-Control "${cc}"`);
+}
+
+/** The server action id in a rendered form (Next.js progressive enhancement: a hidden $ACTION_ID_<id> input). */
+export function actionId(html: string): string | null {
+  return /name="\$ACTION_ID_([0-9a-f]+)"/i.exec(html)?.[1] ?? null;
+}
+
+/** Posting an address not on the list ends on a page holding the one sentence every address gets. */
+export function checkSignInPost(post: RawOutcome, landed: RawOutcome | null, sentence: string): Check {
+  if (post.error !== undefined) return fail(`sign-in post failed: ${post.error}`);
+  if (post.status === undefined || post.status < 300 || post.status > 399 || !post.location) return fail(`sign-in post returned ${post.status}, expected a redirect`);
+  if (!landed) return fail(`sign-in post redirected to ${post.location}, which was not fetched`);
+  if (landed.error !== undefined) return fail(`${post.location}: request failed: ${landed.error}`);
+  if (landed.status !== 200) return fail(`${post.location}: returned ${landed.status}`);
+  if (!stripTags(landed.body ?? "").includes(sentence)) return fail(`${post.location}: does not hold "${sentence}"`);
+  return pass(`sign-in post: ${post.status} to ${post.location}, 200 with "${sentence}"`);
+}

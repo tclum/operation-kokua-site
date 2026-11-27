@@ -27,6 +27,14 @@ function readEnv(): { url: string; key: string } {
   return { url, key };
 }
 
+/**
+ * The secret key's value, for scripts/check-bundle.ts to compare against the
+ * built client files. The caller compares only and never prints it.
+ */
+export function secretKeyForComparison(): string {
+  return readEnv().key;
+}
+
 let client: SupabaseClient | undefined;
 
 export function db(): SupabaseClient {

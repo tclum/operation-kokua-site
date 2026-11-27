@@ -67,17 +67,37 @@ describe("secret key isolation", () => {
     expect(offenders).toEqual([]);
   });
 
-  it("no non-test file under src/ imports anything under scripts/ or @supabase", () => {
-    const offenders = srcFiles.filter((f) => !f.endsWith(".test.ts")).filter((f) =>
-      importsOf(f).some((s) => s.startsWith("@supabase") || resolved(f, s).startsWith(path.join(ROOT, "scripts") + path.sep)),
-    );
+  it("no non-test file under src/ imports anything under scripts/", () => {
+    const offenders = srcFiles
+      .filter((f) => !/\.test\.tsx?$/.test(f))
+      .filter((f) => importsOf(f).some((s) => resolved(f, s).startsWith(path.join(ROOT, "scripts") + path.sep)));
     expect(offenders).toEqual([]);
   });
 
-  it("SUPABASE_SECRET_KEY is read only in scripts/record/db.ts", () => {
-    const files = [...srcFiles, ...filesUnder(path.join(ROOT, "scripts"))].filter((f) => f !== __filename && /\.tsx?$/.test(f));
-    const readers = files.filter((f) => readFileSync(f, "utf8").includes("SUPABASE_SECRET_KEY")).map((f) => path.relative(ROOT, f));
-    expect(readers).toEqual(["scripts/record/db.ts"]);
+  it("@supabase is imported under src/ only by the record view's server modules and the middleware", () => {
+    const importers = srcFiles
+      .filter((f) => !/\.test\.tsx?$/.test(f))
+      .filter((f) => importsOf(f).some((s) => s.startsWith("@supabase")))
+      .map((f) => path.relative(ROOT, f))
+      .sort();
+    expect(importers).toEqual(["src/app/admin/confirm/route.ts", "src/lib/admin/auth.ts", "src/lib/admin/record.ts", "src/middleware.ts"]);
+  });
+
+  it("SUPABASE_SECRET_KEY is read only in scripts/record/db.ts and src/lib/admin/env.ts (and named by the bundle check)", () => {
+    const files = [...srcFiles, ...filesUnder(path.join(ROOT, "scripts"))].filter((f) => f !== __filename && /\.tsx?$/.test(f) && !/\.test\.tsx?$/.test(f));
+    const readers = files.filter((f) => readFileSync(f, "utf8").includes("SUPABASE_SECRET_KEY")).map((f) => path.relative(ROOT, f)).sort();
+    // check-bundle.ts names the variable only to search the built client files
+    // for it; it gets the value from scripts/record/db.ts.
+    expect(readers).toEqual(["scripts/check-bundle.ts", "scripts/record/db.ts", "src/lib/admin/env.ts"]);
+    expect(readFileSync(path.join(ROOT, "scripts", "check-bundle.ts"), "utf8")).not.toMatch(/process\.env/);
+  });
+
+  it("the secret key's value is used only through src/lib/admin/record.ts (secretKey) and scripts/record/db.ts", () => {
+    const users = srcFiles
+      .filter((f) => !/\.test\.tsx?$/.test(f))
+      .filter((f) => /\.secretKey\b/.test(readFileSync(f, "utf8")))
+      .map((f) => path.relative(ROOT, f));
+    expect(users).toEqual(["src/lib/admin/record.ts"]);
   });
 
   it("no file under src/app or src/components imports anything under src/record", () => {

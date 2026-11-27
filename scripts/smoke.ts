@@ -13,13 +13,26 @@
 //   10  /timeline holds one trip section per trip in src/content/trips.ts (12)
 //   11  an unknown path returns 404
 //   12  /robots.txt returns 200 and allows /
+//   13  /admin, unauthenticated, redirects to /admin/sign-in; the body holds
+//       none of SAMPLE, Original cost, or any seeded recipient name
+//   14  /admin/handovers, the same
+//   15  /admin/items/<uuid>, the same
+//   16  /admin/sign-in returns 200 with noindex header and meta and
+//       Cache-Control no-store
+//   17  posting an address that is not on the list to /admin/sign-in ends on
+//       the one sentence every address gets
 
 import { execSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { trips } from "../src/content/trips";
+import { ADMIN_PATH, HANDOVERS_PATH, itemPath, SIGN_IN_PATH, SIGN_IN_SENT } from "../src/lib/admin/paths";
 import { IRS_LETTER_PATH, ROUTES } from "../src/lib/routes";
 import {
+  actionId,
   buildStampSha,
   type Check,
+  checkAdminRedirect,
   checkBaseUrl,
   checkImages,
   checkNoindexAll,
@@ -27,19 +40,55 @@ import {
   checkPdf,
   checkRobotsTxt,
   checkRoute,
+  checkSignInPage,
+  checkSignInPost,
   checkStamp,
   checkTimeline,
   errorText,
   h1s,
   imageUrls,
   type PageFetch,
+  type RawOutcome,
   type UrlOutcome,
 } from "./smoke-checks";
 
-const SMOKE_VERSION = "smoke v0.1.0";
+const SMOKE_VERSION = "smoke v0.2.0";
 const PAGE_TIMEOUT_MS = 20_000;
 const ROUTE_PATHS = ROUTES.map((r) => r.path);
 const UNKNOWN_PATH = "/no-such-page-smoke";
+const ADMIN_ITEM_PATH = itemPath("00000000-0000-4000-8000-000000000000");
+/** An address that is never on the allowlist (example.com is reserved). */
+const NOT_LISTED = "smoke-not-on-the-list@example.com";
+
+/** The recipient names the seed migration puts in the real record. */
+function seededRecipientNames(): string[] {
+  const sql = readFileSync(path.join(__dirname, "..", "supabase", "migrations", "20261125021334_seed_old_site.sql"), "utf8");
+  return [...sql.matchAll(/^\s+\('([^']+)', (?:'[^']*'|null), '[^']*', '[^']*'\)/gm)].map((m) => m[1]);
+}
+
+/** What an unauthenticated redirect body must never hold. */
+function forbiddenInRedirect(): string[] {
+  return ["SAMPLE", "Original cost", ...seededRecipientNames()];
+}
+
+async function raw(url: string, init: RequestInit = {}): Promise<RawOutcome> {
+  const ac = new AbortController();
+  const t = setTimeout(() => ac.abort(), PAGE_TIMEOUT_MS);
+  try {
+    const r = await fetch(url, { ...init, signal: ac.signal, redirect: "manual" });
+    return {
+      status: r.status,
+      location: r.headers.get("location"),
+      xRobots: r.headers.get("x-robots-tag"),
+      cacheControl: r.headers.get("cache-control"),
+      body: await r.text(),
+    };
+  } catch (e) {
+    return { error: errorText(e) };
+  } finally {
+    clearTimeout(t);
+  }
+}
 
 function localSha(): string {
   try {
@@ -126,6 +175,27 @@ async function live(baseUrl: string): Promise<number> {
     results.push({ ok: false, detail: `/robots.txt failed: ${errorText(e)}` });
   }
 
+  // 13-15. Signed-in pages, unauthenticated: redirect to sign-in, nothing leaked.
+  const forbidden = forbiddenInRedirect();
+  for (const p of [ADMIN_PATH, HANDOVERS_PATH, ADMIN_ITEM_PATH]) {
+    results.push(checkAdminRedirect(p, await raw(new URL(p, baseUrl).toString()), SIGN_IN_PATH, forbidden, baseUrl));
+  }
+  // 16. The sign-in page.
+  const signIn = await raw(new URL(SIGN_IN_PATH, baseUrl).toString());
+  results.push(checkSignInPage(SIGN_IN_PATH, signIn));
+  // 17. Posting an address that is not on the list.
+  const id = actionId(signIn.body ?? "");
+  if (!id) {
+    results.push({ ok: false, detail: `${SIGN_IN_PATH}: no server action id in the form` });
+  } else {
+    const form = new FormData();
+    form.set(`$ACTION_ID_${id}`, "");
+    form.set("email", NOT_LISTED);
+    const post = await raw(new URL(SIGN_IN_PATH, baseUrl).toString(), { method: "POST", body: form, headers: { Origin: new URL(baseUrl).origin } });
+    const landed = post.location ? await raw(new URL(post.location, baseUrl).toString()) : null;
+    results.push(checkSignInPost(post, landed, SIGN_IN_SENT));
+  }
+
   const ok = report(results);
   console.log(`RESULT: ${ok ? "pass" : "fail"}`);
   return ok ? 0 : 1;
@@ -149,6 +219,17 @@ const okPage = (path: string, extra: Partial<PageFetch> = {}): PageFetch => ({ s
 const allPages = (override: Record<string, PageFetch> = {}) => new Map(ROUTE_PATHS.map((p) => [p, override[p] ?? okPage(p)]));
 const IMG: UrlOutcome = { url: "http://localhost/images/photo-1-640.jpg", status: 200, type: "image/jpeg" };
 const FETCH_RESET = new TypeError("fetch failed", { cause: Object.assign(new Error("socket hang up"), { code: "ECONNRESET" }) });
+
+const REDIRECT: RawOutcome = { status: 307, location: SIGN_IN_PATH, xRobots: NOINDEX, cacheControl: "no-store", body: "" };
+const SIGN_IN_OK: RawOutcome = {
+  status: 200,
+  location: null,
+  xRobots: NOINDEX,
+  cacheControl: "no-store",
+  body: `<html><head><meta name="robots" content="${NOINDEX}"/></head><body><form action="" method="POST"><input type="hidden" name="$ACTION_ID_7f00ab"/><input name="email"/></form></body></html>`,
+};
+const POSTED: RawOutcome = { status: 303, location: `${SIGN_IN_PATH}?sent=1`, body: "" };
+const LANDED: RawOutcome = { ...SIGN_IN_OK, body: `<html><body><p role="status">${SIGN_IN_SENT}</p></body></html>` };
 
 type Case = { name: string; mustPass: boolean; run: () => Check };
 
@@ -185,6 +266,15 @@ const cases: Case[] = [
     },
   },
   { name: "h1 text extracted", mustPass: true, run: () => ({ ok: h1s(pageHtml("/"))[0] === "Title", detail: "Title" }) },
+  ...[ADMIN_PATH, HANDOVERS_PATH, ADMIN_ITEM_PATH].map(
+    (p, i): Case => ({ name: `${13 + i} ${p}: 307 to sign-in, clean body`, mustPass: true, run: () => checkAdminRedirect(p, REDIRECT, SIGN_IN_PATH, forbiddenInRedirect()) }),
+  ),
+  { name: "13 an absolute Location to sign-in", mustPass: true, run: () => checkAdminRedirect(ADMIN_PATH, { ...REDIRECT, location: `http://localhost${SIGN_IN_PATH}` }, SIGN_IN_PATH, forbiddenInRedirect()) },
+  { name: "13-15 seeded recipient names read from the migration (4)", mustPass: true, run: () => ({ ok: seededRecipientNames().length === 4, detail: seededRecipientNames().join(", ") }) },
+  { name: "16 sign-in: 200, noindex, no-store", mustPass: true, run: () => checkSignInPage(SIGN_IN_PATH, SIGN_IN_OK) },
+  { name: "16 sign-in: Next's private no-cache no-store", mustPass: true, run: () => checkSignInPage(SIGN_IN_PATH, { ...SIGN_IN_OK, cacheControl: "private, no-cache, no-store, max-age=0, must-revalidate" }) },
+  { name: "17 action id read from the form", mustPass: true, run: () => ({ ok: actionId(SIGN_IN_OK.body!) === "7f00ab", detail: String(actionId(SIGN_IN_OK.body!)) }) },
+  { name: "17 post: 303 then the sentence", mustPass: true, run: () => checkSignInPost(POSTED, LANDED, SIGN_IN_SENT) },
   // must-fail
   { name: "1-5 a route that is 404", mustPass: false, run: () => checkRoute("/work", okPage("/work", { status: 404 })) },
   { name: "1-5 a route that fails to load", mustPass: false, run: () => checkRoute("/work", { error: errorText(FETCH_RESET) }) },
@@ -214,6 +304,23 @@ const cases: Case[] = [
   { name: "12 robots.txt disallows /", mustPass: false, run: () => checkRobotsTxt(200, "User-Agent: *\nDisallow: /\n") },
   { name: "12 robots.txt 404", mustPass: false, run: () => checkRobotsTxt(404, "") },
   { name: "address: a bare host", mustPass: false, run: () => checkBaseUrl("kokua.forpono.com") },
+  { name: "13 /admin answers 200 (no guard)", mustPass: false, run: () => checkAdminRedirect(ADMIN_PATH, { ...REDIRECT, status: 200, location: null }, SIGN_IN_PATH, forbiddenInRedirect()) },
+  { name: "13 /admin answers 503 (not configured)", mustPass: false, run: () => checkAdminRedirect(ADMIN_PATH, { ...REDIRECT, status: 503, location: null }, SIGN_IN_PATH, forbiddenInRedirect()) },
+  { name: "13 /admin redirects somewhere else", mustPass: false, run: () => checkAdminRedirect(ADMIN_PATH, { ...REDIRECT, location: "/" }, SIGN_IN_PATH, forbiddenInRedirect()) },
+  { name: "13 a redirect with no Location", mustPass: false, run: () => checkAdminRedirect(ADMIN_PATH, { ...REDIRECT, location: null }, SIGN_IN_PATH, forbiddenInRedirect()) },
+  { name: "14 redirect body holds SAMPLE", mustPass: false, run: () => checkAdminRedirect(HANDOVERS_PATH, { ...REDIRECT, body: "<td>SAMPLE scalpel</td>" }, SIGN_IN_PATH, forbiddenInRedirect()) },
+  { name: "14 redirect body holds Original cost", mustPass: false, run: () => checkAdminRedirect(HANDOVERS_PATH, { ...REDIRECT, body: "<td>Original cost</td>" }, SIGN_IN_PATH, forbiddenInRedirect()) },
+  { name: "15 redirect body holds a recipient name", mustPass: false, run: () => checkAdminRedirect(ADMIN_ITEM_PATH, { ...REDIRECT, body: `<td>${seededRecipientNames()[0]}</td>` }, SIGN_IN_PATH, forbiddenInRedirect()) },
+  { name: "15 request fails", mustPass: false, run: () => checkAdminRedirect(ADMIN_ITEM_PATH, { error: errorText(FETCH_RESET) }, SIGN_IN_PATH, forbiddenInRedirect()) },
+  { name: "16 sign-in 503", mustPass: false, run: () => checkSignInPage(SIGN_IN_PATH, { ...SIGN_IN_OK, status: 503 }) },
+  { name: "16 sign-in missing the noindex header", mustPass: false, run: () => checkSignInPage(SIGN_IN_PATH, { ...SIGN_IN_OK, xRobots: null }) },
+  { name: "16 sign-in missing the noindex meta", mustPass: false, run: () => checkSignInPage(SIGN_IN_PATH, { ...SIGN_IN_OK, body: "<html><head></head><body><form></form></body></html>" }) },
+  { name: "16 sign-in cacheable", mustPass: false, run: () => checkSignInPage(SIGN_IN_PATH, { ...SIGN_IN_OK, cacheControl: "public, max-age=3600" }) },
+  { name: "16 sign-in with no Cache-Control", mustPass: false, run: () => checkSignInPage(SIGN_IN_PATH, { ...SIGN_IN_OK, cacheControl: null }) },
+  { name: "17 post answers 200 with no redirect", mustPass: false, run: () => checkSignInPost({ status: 200, location: null, body: "" }, null, SIGN_IN_SENT) },
+  { name: "17 post lands on a page without the sentence", mustPass: false, run: () => checkSignInPost(POSTED, { ...LANDED, body: "<p>That address is not on the list.</p>" }, SIGN_IN_SENT) },
+  { name: "17 post lands on a 500", mustPass: false, run: () => checkSignInPost(POSTED, { ...LANDED, status: 500 }, SIGN_IN_SENT) },
+  { name: "17 no action id in a form", mustPass: false, run: () => ({ ok: actionId("<form></form>") !== null, detail: "no id" }) },
   { name: "address: ftp://example.com", mustPass: false, run: () => checkBaseUrl("ftp://example.com") },
 ];
 

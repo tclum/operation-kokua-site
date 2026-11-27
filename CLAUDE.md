@@ -1,4 +1,4 @@
-Rev 2026-11-25a
+Rev 2026-11-25b
 
 # operation-kokua-site: standing rules for agents
 
@@ -29,8 +29,15 @@ These rules apply in every session and every slice. A prompt may add to them, ne
 - Agents never create, change or delete a row in a batch of kind `real`, by any route: no script flag, no direct request, no piping input into a prompt meant for a person. Agents import synthetic batches only.
 - Agents rehearse real imports with `--dry-run` only. A real import is committed by a person at a terminal typing the batch label; that confirmation is never bypassed, scripted or worked around, and no flag or variable is ever added to skip it.
 - The rehearsal file `record/rehearsal-real-v2.xlsx` (and any workbook with a `REHEARSAL` name or a `rehearsal-` slug) is never committed to the record; the importer refuses it, and that refusal is never worked around.
-- The value of `SUPABASE_SECRET_KEY` (and of anything in `.env.local`) never appears in output, logs, commits or prompts. It is read only in `scripts/record/db.ts`, which nothing under `src/` imports.
+- The value of `SUPABASE_SECRET_KEY` (and of anything in `.env.local`) never appears in output, logs, commits or prompts. It is read from the environment only in `scripts/record/db.ts` (which nothing under `src/` imports) and `src/lib/admin/env.ts`, and used only in `src/lib/admin/record.ts`, `src/lib/admin/guard.ts` (through record.ts) and `scripts/record/db.ts`. It is never `NEXT_PUBLIC_`.
 - Every synthetic row is named SAMPLE: names, descriptions and titles start with `SAMPLE`, refs and trip slugs with `sample-`, and no real hospital, person, place of work or serial number appears.
+
+## The record view (/admin)
+- Every page, route handler and server action under `src/app/admin` calls `requireAdmin()` (`src/lib/admin/guard.ts`) first, before it reads anything. The only exceptions are the sign-in page and its action and the confirm route. A layout is not the guard.
+- A sign-in link is never redeemed by a GET: `/admin/confirm` verifies a `token_hash` only on the POST from its own Continue button. `src/lib/admin/coverage.test.ts` holds this; never weaken it or widen its exception list without a prompt saying so.
+- The view is read-only until a slice says otherwise: no page, route or action writes to the record, and `src/lib/admin/record.ts` exports read functions only.
+- Agents never add, change or remove a row in `app_admins` or an Auth user, by any route: no script, no direct request, no piping input into `pnpm record:admin`. The allowlist changes only through `pnpm record:admin add|remove`, run by a person at a terminal typing the address back; that confirmation is never bypassed, scripted or worked around, and no flag or variable is ever added to skip it.
+- No client component imports anything from `src/lib/admin`, and nothing under `src/components` imports `src/lib/admin/record.ts`. `pnpm check:bundle` stays in the gate.
 
 ## Gate and smoke
 - The full gate in `README.md` runs before every commit. Report every run in order, with full output; no hidden re-runs.

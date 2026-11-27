@@ -1,6 +1,7 @@
 import { execSync } from "node:child_process";
 import type { NextConfig } from "next";
 import { unconfirmed } from "./src/content/unconfirmed";
+import { ADMIN_HEADERS } from "./src/lib/admin/paths";
 import { isIndexable } from "./src/lib/indexing";
 import { assertLaunchReady } from "./src/lib/launch-gate";
 
@@ -31,12 +32,19 @@ const nextConfig: NextConfig = {
     BUILD_TIME: new Date().toISOString(),
   },
   async headers() {
-    if (isIndexable()) return [];
+    // /admin is noindex and uncached whatever SITE_INDEXABLE says (the
+    // middleware sets the same headers on every /admin response it answers).
+    const admin = {
+      source: "/admin/:path*",
+      headers: Object.entries(ADMIN_HEADERS).map(([key, value]) => ({ key, value })),
+    };
+    if (isIndexable()) return [admin];
     return [
       {
         source: "/:path*",
         headers: [{ key: "X-Robots-Tag", value: "noindex, nofollow" }],
       },
+      admin,
     ];
   },
 };
